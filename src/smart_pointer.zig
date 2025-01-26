@@ -64,7 +64,6 @@ pub fn SmartPointer(comptime T: type) type {
             return @hasDecl(T, "deinit");
         }
 
-        // 类型特化的销毁函数
         fn destroyT(allocator: std.mem.Allocator, ptr: *T) void {
             if (is_deinitable) {
                 ptr.deinit();
@@ -72,7 +71,7 @@ pub fn SmartPointer(comptime T: type) type {
             allocator.destroy(ptr);
         }
 
-        // 复制指针（增加引用计数）
+        // clone a smart pointer
         pub fn clone(self: Self) Self {
             self.rc.retain();
             return .{
@@ -82,10 +81,19 @@ pub fn SmartPointer(comptime T: type) type {
             };
         }
 
-        // 释放资源
         pub fn release(self: *Self) void {
             self.rc.release();
             self.ptr = undefined;
+        }
+
+        // just an alias for release
+        pub fn deinit(self: *Self) void {
+            self.release();
+        }
+
+        // fetch the raw pointer type-safely
+        pub fn get(self: Self) *T {
+            return self.ptr;
         }
     };
 }
