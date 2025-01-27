@@ -3,7 +3,7 @@
 [![Zig Version](https://img.shields.io/badge/Zig-0.13.0-%23ec7c0c)](https://ziglang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-提供线程安全的强/弱引用计数智能指针实现，适用于 Zig 的现代内存管理场景。
+提供线程安全的引用计数智能指针实现，适用于 Zig 的现代内存管理场景。
 
 ## 特性
 
