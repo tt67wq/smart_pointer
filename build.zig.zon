@@ -6,7 +6,9 @@
     //
     // It is redundant to include "zig" in this name because it is already
     // within the Zig package namespace.
-    .name = "smart_pointer",
+    .name = .smart_pointer,
+
+    .fingerprint = 0x5370e3166a2517ad,
 
     // This is a [Semantic Version](https://semver.org/).
     // In a future version of Zig it will be used for package deduplication.

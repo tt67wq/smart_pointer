@@ -2,13 +2,14 @@ const std = @import("std");
 const atomic = std.atomic;
 const testing = std.testing;
 
-// Stage 1: Define the foundational structure
+// 第 1 阶段：定义基础结构
 const RefCounted = struct {
     allocator: std.mem.Allocator,
     counter: atomic.Value(usize),
     data: *anyopaque,
     destroy_fn: *const fn (std.mem.Allocator, *anyopaque) void,
 
+    // 创建智能指针（基础版本）
     fn create(allocator: std.mem.Allocator, ptr: anytype, destroy: fn (std.mem.Allocator, @TypeOf(ptr)) void) !*RefCounted {
         const wrapper = try allocator.create(RefCounted);
 
@@ -22,21 +23,22 @@ const RefCounted = struct {
         return wrapper;
     }
 
+    // 增加引用计数
     fn retain(rc: *RefCounted) void {
         _ = rc.counter.fetchAdd(1, .monotonic);
     }
 
+    // 减少引用计数（基础版本）
     fn release(rc: *RefCounted) void {
-        const prev = rc.counter.fetchSub(1, .release);
-        if (prev == 1) {
-            rc.counter.fence(.acquire);
+        if (rc.counter.fetchSub(1, .release) == 1) {
+            _ = rc.counter.load(.acquire);
             rc.destroy_fn(rc.allocator, rc.data);
             rc.allocator.destroy(rc);
         }
     }
 };
 
-// stage 2: type-safe wrapper
+// 第 2 阶段：类型安全包装器
 pub fn SmartPointer(comptime T: type) type {
     return struct {
         allocator: std.mem.Allocator,
@@ -60,10 +62,11 @@ pub fn SmartPointer(comptime T: type) type {
 
         fn hasDeinit() bool {
             const typeinfo = @typeInfo(T);
-            if (typeinfo != .Struct and typeinfo != .Union) return false;
+            if (typeinfo != .@"struct" and typeinfo != .@"union") return false;
             return @hasDecl(T, "deinit");
         }
 
+        // 类型特化的销毁函数
         fn destroyT(allocator: std.mem.Allocator, ptr: *T) void {
             if (is_deinitable) {
                 ptr.deinit();
@@ -71,7 +74,7 @@ pub fn SmartPointer(comptime T: type) type {
             allocator.destroy(ptr);
         }
 
-        // clone a smart pointer
+        // 复制指针（增加引用计数）
         pub fn clone(self: Self) Self {
             self.rc.retain();
             return .{
@@ -81,24 +84,28 @@ pub fn SmartPointer(comptime T: type) type {
             };
         }
 
+        // alias to release
+        pub fn deinit(self: *Self) void {
+            self.release();
+        }
+
+        // 释放资源
         pub fn release(self: *Self) void {
             self.rc.release();
             self.ptr = undefined;
         }
 
-        // just an alias for release
-        pub fn deinit(self: *Self) void {
-            self.release();
-        }
-
-        // fetch the raw pointer type-safely
         pub fn get(self: Self) *T {
             return self.ptr;
+        }
+
+        pub fn load(self: Self) T {
+            return self.ptr.*;
         }
     };
 }
 
-// stage 3: type-safe access
+// 增强安全性（编译时类型检查）
 pub fn get(comptime T: type, sp: anytype) *T {
     if (@TypeOf(sp.ptr) != *T) {
         @compileError("Type mismatch in smart pointer access");
@@ -106,7 +113,7 @@ pub fn get(comptime T: type, sp: anytype) *T {
     return sp.ptr;
 }
 
-test "basic" {
+test "智能指针基础功能" {
     const MyType = struct { value: u32 };
 
     // 创建初始指针
@@ -128,7 +135,7 @@ test "basic" {
     try testing.expect(sp2.ptr.value == 52);
 }
 
-test "struct with deinit" {
+test "Struct with deinit" {
     const MyType = struct {
         allocator: std.mem.Allocator,
         value: []u8,
@@ -143,6 +150,7 @@ test "struct with deinit" {
         }
 
         fn deinit(self: *Self) void {
+            // std.debug.print("deiniting myself\n", .{});
             self.allocator.free(self.value);
         }
     };
@@ -152,19 +160,19 @@ test "struct with deinit" {
     defer sp.release();
 }
 
-test "type safety" {
+test "类型安全访问" {
     const FloatPtr = SmartPointer(f32);
     var sp = try FloatPtr.create(std.testing.allocator, 3.14);
     defer sp.release();
 
-    // correct access
+    // 正确访问
     _ = get(f32, sp);
 
-    // wrong access
+    // 以下代码会在编译时报错
     // _ = get(u32, sp);
 }
 
-test "concurrent access" {
+test "并发引用计数" {
     const Concurrency = 100;
     const TestData = struct { value: u32 };
 
@@ -173,6 +181,7 @@ test "concurrent access" {
 
     var threads: [Concurrency]std.Thread = undefined;
 
+    // 创建并发增加引用计数的线程
     for (&threads) |*t| {
         t.* = try std.Thread.spawn(.{}, struct {
             fn func(s: *SmartPointer(TestData)) void {
@@ -182,7 +191,9 @@ test "concurrent access" {
         }.func, .{&sp});
     }
 
+    // 等待所有线程完成
     for (threads) |t| t.join();
 
+    // 最终引用计数应为1（初始计数 + N线程增加 - N线程释放）
     try testing.expect(sp.rc.counter.load(.monotonic) == 1);
 }
